@@ -1,5 +1,3 @@
-#!pip install llmcompressor
-
 import os
 import torch
 import shutil
@@ -9,23 +7,21 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
-# from limcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.quantization import GPTQModifier
 
-MODEL_ID = "LGAI-EXAONE/EXAONE-4.0-1.2B"
-OUT_DIR  = "./model"
+MODEL_ID = "./base_model"     
+OUT_DIR  = "./model"          
 
 DATASET_ID = "LGAI-EXAONE/MANTA-1M"
 DATASET_SPLIT = "train"
 
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
 
 # Quantization
-SCHEME = "W4A16_ASYM"
+SCHEME = "W4A16"
 TARGETS = ["Linear"]
-IGNORE  = ["embed_tokens", "lm_head", "model.layers.0", "model.layers.29"]
-DUO_SCALING = "both"
+IGNORE  = ["embed_tokens", "lm_head"]
 
 print("[INFO] 모델 로드 중...")
 
@@ -36,7 +32,7 @@ tokenizer = AutoTokenizer.from_pretrained(
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    dtype=torch.bfloat16,
+    torch_dtype=torch.bfloat16,
 )
 
 print("[INFO] 모델/토크나이저 로드 완료")
@@ -60,23 +56,13 @@ ds = ds.map(preprocess)
 
 print("[INFO] 데이터 전처리 완료")
 
-def tokenize(sample):
-  return tokenizer(
-      sample["text"],
-      padding = False,
-      truncation = True,
-      max_length = MAX_SEQUENCE_LENGTH,
-      add_special_tokens = False,
-  )
-
-print(f"[INFO] AWQ 시작 (scheme={SCHEME}, samples={NUM_CALIBRATION_SAMPLES}, max_len={MAX_SEQUENCE_LENGTH})...")
+print(f"[INFO] GPTQ 시작 (scheme={SCHEME}, samples={NUM_CALIBRATION_SAMPLES}, max_len={MAX_SEQUENCE_LENGTH})...")
 
 recipe = [
-    AWQModifier(
+    GPTQModifier(
         scheme=SCHEME,
         targets=TARGETS,
         ignore=IGNORE,
-        duo_scaling=DUO_SCALING,
     )
 ]
 
@@ -88,7 +74,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-print("[INFO] AWQ 완료")
+print("[INFO] GPTQ 완료")
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -97,7 +83,7 @@ tokenizer.save_pretrained(OUT_DIR)
 
 print(f"[INFO] 모델 저장 완료: {OUT_DIR}")
 
-zip_name = "awq_W4A16_ASYNC_512_512"
+zip_name = "baseline_submit"
 print(f"[INFO] {zip_name}.zip 생성 중...")
 
 shutil.make_archive(
